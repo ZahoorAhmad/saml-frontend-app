@@ -44,11 +44,11 @@ function render() {
                 <div class="text-2xl font-bold text-blue-600">SAML SSO POC</div>
                 <div class="flex items-center space-x-4">
                     ${token ? `
-                        <button onclick="handleLogout()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                        <button id="logoutBtn" type="button" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
                             Logout
                         </button>
                     ` : `
-                        <button onclick="currentRoute='/login'; render()" class="px-4 py-2 text-gray-600 hover:text-gray-900">
+                        <button id="loginNavBtn" type="button" class="px-4 py-2 text-gray-600 hover:text-gray-900">
                             Login
                         </button>
                     `}
@@ -74,6 +74,28 @@ function render() {
 
     main.classList.add('fade-in')
     root.appendChild(main)
+
+    bindLoginHandlers(main)
+}
+
+function bindLoginHandlers(main) {
+    const form = main.querySelector('#loginForm')
+    if (form) {
+        form.addEventListener('submit', handleDiscovery)
+    }
+
+    const logoutBtn = document.getElementById('logoutBtn')
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout)
+    }
+
+    const loginNavBtn = document.getElementById('loginNavBtn')
+    if (loginNavBtn) {
+        loginNavBtn.addEventListener('click', () => {
+            currentRoute = '/login'
+            render()
+        })
+    }
 }
 
 function renderLoginPage() {
@@ -89,7 +111,7 @@ function renderLoginPage() {
                     </p>
                 </div>
 
-                <form class="mt-8 space-y-6" onsubmit="handleDiscovery(event)">
+                <form id="loginForm" class="mt-8 space-y-6">
                     <div id="errorMessage" class="hidden rounded-md bg-red-50 p-4 text-sm text-red-700"></div>
 
                     <div class="rounded-md shadow-sm space-y-4">
@@ -258,40 +280,51 @@ async function handleDiscovery(event) {
     isLoading = true
     render()
 
-    const email = document.getElementById('email').value
-    const domain = document.getElementById('domain').value
-    const errorDiv = document.getElementById('errorMessage')
+    const email = document.getElementById('email')?.value?.trim() || ''
+    const domain = document.getElementById('domain')?.value?.trim() || ''
 
     // Extract domain from email if provided
-    let lookupDomain = email ? email.split('@')[1] : domain
+    let lookupDomain = email.includes('@') ? email.split('@')[1] : domain
 
     if (!lookupDomain) {
-        errorDiv.textContent = 'Please enter a valid email or domain'
-        errorDiv.classList.remove('hidden')
         isLoading = false
         render()
+        const errorDiv = document.getElementById('errorMessage')
+        if (errorDiv) {
+            errorDiv.textContent = 'Please enter a valid email or domain'
+            errorDiv.classList.remove('hidden')
+        }
         return
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/saml/connections/lookup?domain=${lookupDomain}`)
+        const response = await fetch(`${API_BASE_URL}/api/v1/saml/connections/lookup?domain=${encodeURIComponent(lookupDomain)}`)
         const data = await response.json()
 
         if (data.found && data.sso_endpoint) {
-            // Redirect to login endpoint
-            window.location.href = data.sso_endpoint
-        } else {
+            const returnUrl = `${FRONTEND_URL}/?token=`
+            const loginUrl = `${data.sso_endpoint}?return_url=${encodeURIComponent(returnUrl.replace('?token=', ''))}`
+            window.location.href = loginUrl
+            return
+        }
+
+        isLoading = false
+        render()
+        const errorDiv = document.getElementById('errorMessage')
+        if (errorDiv) {
             errorDiv.textContent = data.error || 'No SSO configuration found for this domain'
             errorDiv.classList.remove('hidden')
         }
     } catch (error) {
-        errorDiv.textContent = 'Failed to discover SAML configuration'
-        errorDiv.classList.remove('hidden')
+        isLoading = false
+        render()
+        const errorDiv = document.getElementById('errorMessage')
+        if (errorDiv) {
+            errorDiv.textContent = 'Failed to discover SAML configuration'
+            errorDiv.classList.remove('hidden')
+        }
         console.error('Discovery error:', error)
     }
-
-    isLoading = false
-    render()
 }
 
 function handleLogout() {
